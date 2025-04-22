@@ -62,7 +62,7 @@ app.post('/webhook', async (req, res) => {
     const address = `${order.shipping_address.address1}, ${order.shipping_address.city}`;
     const price = order.total_price;
 
-    const pathaoResponse = await axios.post('https://api.pathao.com/your-pathao-delivery-endpoint', {
+    const pathaoResponse = await axios.post('https://api.pathao.com//aladdin/api/v1/issue-token', {
       customer_name: customerName,
       customer_phone: customerPhone,
       delivery_address: address,
