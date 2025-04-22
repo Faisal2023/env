@@ -11,7 +11,7 @@ app.use(bodyParser.json());
 // Function to get Pathao Access Token
 async function getPathaoToken() {
   try {
-    const response = await axios.post('https://courier-api-sandbox.pathao.com', {
+    const response = await axios.post('https://api-hermes.pathao.com', {
       client_id: process.env.PATHAO_CLIENT_ID,
       client_secret: process.env.PATHAO_CLIENT_SECRET,
       grant_type: 'client_credentials'
