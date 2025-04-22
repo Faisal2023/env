@@ -1,91 +1,86 @@
-const express = require('express');
-const bodyParser = require('body-parser');
-const axios = require('axios');
 require('dotenv').config();
+const express = require('express');
+const axios = require('axios');
+const bodyParser = require('body-parser');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-
 app.use(bodyParser.json());
 
-// Function to get Pathao Access Token
+// 🌟 Function: Get Pathao Access Token
 async function getPathaoToken() {
   try {
-    const response = await axios.post('https://api-hermes.pathao.com', {
+    const response = await axios.post(`https://api-hermes.pathao.com/aladdin/api/v1/issue-token`, {
       client_id: process.env.PATHAO_CLIENT_ID,
       client_secret: process.env.PATHAO_CLIENT_SECRET,
-      grant_type: 'client_credentials'
+      grant_type: 'password',
+      username: process.env.PATHAO_USERNAME,
+      password: process.env.PATHAO_PASSWORD
     }, {
-      headers: {
-        'Content-Type': 'application/json'
-      }
+      headers: { 'Content-Type': 'application/json' }
     });
+
+    console.log('✅ Pathao Token Generated');
     return response.data.access_token;
   } catch (error) {
-    console.error('Error fetching Pathao token:', error.response ? error.response.data : error.message);
-    return null;
+    console.error('❌ Error fetching Pathao token:', error.response ? error.response.data : error.message);
+    throw new Error('Could not authenticate with Pathao');
   }
 }
 
-// Function to register Shopify Webhook
-async function registerShopifyWebhook() {
+// 🌟 Function: Create Order in Pathao
+async function createPathaoOrder(pathaoToken, shopifyOrder) {
   try {
-    const response = await axios.post(`https://${process.env.SHOPIFY_STORE_URL}/admin/api/2024-04/webhooks.json`, {
-      webhook: {
-        topic: 'orders/create',
-        address: 'https://env-k67r.onrender.com', // Change this to your server URL
-        format: 'json'
-      }
-    }, {
-      headers: {
-        'X-Shopify-Access-Token': process.env.SHOPIFY_ADMIN_API_TOKEN,
-        'Content-Type': 'application/json'
-      }
-    });
+    const orderPayload = {
+      store_id: parseInt(process.env.PATHAO_STORE_ID),
+      merchant_order_id: shopifyOrder.id.toString(),
+      recipient_name: `${shopifyOrder.customer.first_name} ${shopifyOrder.customer.last_name}`,
+      recipient_phone: shopifyOrder.customer.phone || shopifyOrder.billing_address.phone,
+      recipient_address: `${shopifyOrder.shipping_address.address1}, ${shopifyOrder.shipping_address.city}`,
+      recipient_city: parseInt(process.env.PATHAO_CITY_ID),
+      recipient_zone: parseInt(process.env.PATHAO_ZONE_ID),
+      recipient_area: parseInt(process.env.PATHAO_AREA_ID),
+      delivery_type: 48, // Regular Delivery
+      item_type: 2, // Parcel
+      special_instruction: '',
+      item_quantity: shopifyOrder.line_items.length,
+      item_weight: "0.5",
+      item_description: shopifyOrder.line_items.map(item => item.name).join(', '),
+      amount_to_collect: parseFloat(shopifyOrder.total_price)
+    };
 
-    console.log('✅ Shopify Webhook registered:', response.data.webhook.id);
-  } catch (error) {
-    console.error('❌ Error registering Shopify webhook:', error.response ? error.response.data : error.message);
-  }
-}
-
-// Webhook endpoint
-app.post('/webhook', async (req, res) => {
-  const order = req.body;
-  console.log('📦 New Order received from Shopify:', order.id);
-
-  try {
-    const pathaoToken = await getPathaoToken();
-
-    const customerName = `${order.customer.first_name} ${order.customer.last_name}`;
-    const customerPhone = order.customer.phone || order.billing_address.phone;
-    const address = `${order.shipping_address.address1}, ${order.shipping_address.city}`;
-    const price = order.total_price;
-
-    const pathaoResponse = await axios.post('https://api.pathao.com//aladdin/api/v1/issue-token', {
-      customer_name: customerName,
-      customer_phone: customerPhone,
-      delivery_address: address,
-      item_price: price,
-      // Add other required fields for Pathao
-    }, {
+    const response = await axios.post(`https://api-hermes.pathao.com/aladdin/api/v1/orders`, orderPayload, {
       headers: {
         Authorization: `Bearer ${pathaoToken}`,
         'Content-Type': 'application/json'
       }
     });
 
-    console.log('✅ Delivery Order Created on Pathao:', pathaoResponse.data);
-    res.status(200).send('Delivery order created successfully');
+    console.log('✅ Order Created in Pathao:', response.data);
+    return response.data;
   } catch (error) {
-    console.error('❌ Error sending order to Pathao:', error.response ? error.response.data : error.message);
-    res.status(500).send('Error creating delivery');
+    console.error('❌ Error creating Pathao order:', error.response ? error.response.data : error.message);
+    throw new Error('Could not create order in Pathao');
+  }
+}
+
+// 🌟 Route: Shopify Webhook Listener
+app.post('/webhook', async (req, res) => {
+  try {
+    const shopifyOrder = req.body;
+    console.log('📦 Received Shopify Order:', shopifyOrder.id);
+
+    const pathaoToken = await getPathaoToken();
+    const pathaoOrder = await createPathaoOrder(pathaoToken, shopifyOrder);
+
+    res.status(200).send('Order received and processed successfully');
+  } catch (error) {
+    console.error('❌ Failed to process Shopify order:', error.message);
+    res.status(500).send('Failed to process order');
   }
 });
 
-app.get('/', (req, res) => res.send('🚀 Shopify Pathao Integration Running!'));
-
-app.listen(PORT, async () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  await registerShopifyWebhook();
+// 🌟 Server Start
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on http://localhost:${PORT}`);
 });
